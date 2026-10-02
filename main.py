@@ -57,7 +57,7 @@ class CommandOutcome:
     PLUGIN_NAME,
     "Codex",
     "QQ 官方群聊翻转七：多人卡牌游戏，支持要牌、停牌、行动卡目标、每轮积分结算和群排行榜。",
-    "1.2.0",
+    "1.3.0",
 )
 class FlipSevenPlugin(Star):
     def __init__(self, context: Context, config: Any = None) -> None:
@@ -65,6 +65,9 @@ class FlipSevenPlugin(Star):
         self.config = dict(config) if config else {}
         self.max_players = self._config_int(
             "max_players", DEFAULT_MAX_PLAYERS, minimum=2, maximum=20
+        )
+        self.rounds_per_game = self._config_int(
+            "rounds_per_game", 3, minimum=1, maximum=10
         )
         self.leaderboard_path = (
             Path(StarTools.get_data_dir(PLUGIN_NAME)) / "leaderboard.json"
@@ -234,6 +237,7 @@ class FlipSevenPlugin(Star):
             group_id=group_id,
             owner_id=user_id,
             max_players=self.max_players,
+            total_rounds=self.rounds_per_game,
         )
         game.add_player(user_id, name)
         self.games[group_id] = game
@@ -383,8 +387,9 @@ class FlipSevenPlugin(Star):
             "7. 修正牌：+2/+4/+6/+8/+10 加在数字总和上；x2 先翻倍再加其他修正。\n"
             "8. 冰冻让目标立即停牌结算；翻三张让目标连续翻三张。\n"
             "9. 抽到行动卡后发送“翻转七选择 编号”选择目标。\n"
-            "10. 每局只有一轮，一局定胜负；本轮积分会累计到群排行榜。\n"
-            "11. 发送“翻转七排行榜”查看群内累计积分排行。\n\n"
+            "10. 每局共三轮，按三轮总积分定胜负。\n"
+            "11. 每轮积分都会累计到群排行榜。\n"
+            "12. 发送“翻转七排行榜”查看群内累计积分排行。\n\n"
             "命令：翻转七菜单 / 翻转七创建 / 翻转七加入 / 翻转七开始 / "
             "翻转七看 / 翻转七要牌 / 翻转七停牌 / 翻转七选择 / "
             "翻转七排行榜 / 翻转七结束"

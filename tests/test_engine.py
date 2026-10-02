@@ -169,9 +169,11 @@ def test_flip_three_other_target_cards_do_not_stuck() -> None:
             assert not (game.phase.name == "ACTION" and game.pending is None)
 
 
-def test_one_round_finishes_game_and_records_scores() -> None:
+def test_first_round_starts_next_round_and_records_scores() -> None:
     game = make_game()
     game.started = True
+    game.total_rounds = 3
+    game.round_no = 1
     game.phase = __import__("src.engine", fromlist=["Phase"]).Phase.TURN
     game.players[0].numbers = [1, 2]
     game.players[0].status = STATUS_STAYED
@@ -179,8 +181,29 @@ def test_one_round_finishes_game_and_records_scores() -> None:
     game.players[1].numbers = [5]
     game.players[1].status = STATUS_BUSTED
     lines = game._finish_round()
+    assert game.phase.name != "FINISHED"
+    assert game.round_no == 2
+    assert game.last_round_scores[game.players[0].user_id] == 3
+    assert game.last_round_scores[game.players[1].user_id] == 0
+    assert any("第 2/3 轮" in line for line in lines)
+
+
+def test_third_round_finishes_game_by_total_score() -> None:
+    game = make_game()
+    game.started = True
+    game.total_rounds = 3
+    game.round_no = 3
+    game.phase = __import__("src.engine", fromlist=["Phase"]).Phase.TURN
+    game.players[0].numbers = [1, 2]
+    game.players[0].status = STATUS_STAYED
+    game.players[0].round_score = 3
+    game.players[0].total_score = 20
+    game.players[1].numbers = [5]
+    game.players[1].status = STATUS_BUSTED
+    game.players[1].total_score = 10
+    lines = game._finish_round()
     assert game.phase.name == "FINISHED"
     assert game.winner_ids == [game.players[0].user_id]
     assert game.last_round_scores[game.players[0].user_id] == 3
     assert game.last_round_scores[game.players[1].user_id] == 0
-    assert any("获胜" in line for line in lines)
+    assert any("总积分 23 分获胜" in line for line in lines)

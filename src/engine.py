@@ -104,6 +104,7 @@ class FlipSevenGame:
     group_id: str
     owner_id: str
     max_players: int = DEFAULT_MAX_PLAYERS
+    total_rounds: int = 3
     players: list[FlipPlayer] = field(default_factory=list)
     phase: Phase = Phase.WAITING
     started: bool = False
@@ -193,7 +194,10 @@ class FlipSevenGame:
         self.round_no = 0
         self.started = True
         self.last_round_scores = {}
-        lines = ["翻转七开始。本局一局定胜负，积分会累计到群排行榜。"]
+        lines = [
+            f"翻转七开始。本局共 {self.total_rounds} 轮，按三轮累计积分定胜负，"
+            "每轮积分也会累计到群排行榜。"
+        ]
         lines.extend(self._start_round(rng))
         return lines
 
@@ -215,7 +219,8 @@ class FlipSevenGame:
         self.initial_dealt_count = 0
         self.phase = Phase.DEALING
         lines = [
-            f"第 {self.round_no} 轮开始，庄家：{self.players[self.dealer_index].name}。",
+            f"第 {self.round_no}/{self.total_rounds} 轮开始，"
+            f"庄家：{self.players[self.dealer_index].name}。",
         ]
         lines.extend(self._deal_initial_cards())
         return lines
@@ -464,7 +469,7 @@ class FlipSevenGame:
         return []
 
     def _finish_round(self) -> list[str]:
-        lines: list[str] = ["本轮结束，本局一局定胜负。"]
+        lines: list[str] = [f"第 {self.round_no}/{self.total_rounds} 轮结束。"]
         for player in self.players:
             if player.status == STATUS_BUSTED:
                 player.round_score = 0
@@ -474,17 +479,28 @@ class FlipSevenGame:
         self.last_round_scores = {
             player.user_id: player.round_score for player in self.players
         }
-        best = max((player.round_score for player in self.players), default=0)
-        self.winner_ids = [
-            player.user_id for player in self.players if player.round_score == best
-        ]
-        winners = "、".join(
-            player.name for player in self.players if player.user_id in self.winner_ids
-        )
-        lines.append(f"最高分：{best} 分，{winners} 获胜！")
         for player in self.players:
-            lines.append(f"{player.name}：本轮 {player.round_score} 分。")
-        self.phase = Phase.FINISHED
+            lines.append(
+                f"{player.name}：本轮 {player.round_score} 分，总积分 {player.total_score} 分。"
+            )
+        if self.round_no >= self.total_rounds:
+            best = max((player.total_score for player in self.players), default=0)
+            self.winner_ids = [
+                player.user_id for player in self.players if player.total_score == best
+            ]
+            winners = "、".join(
+                player.name
+                for player in self.players
+                if player.user_id in self.winner_ids
+            )
+            lines.append(
+                f"{self.total_rounds} 轮结束，{winners} 以总积分 {best} 分获胜！"
+            )
+            self.phase = Phase.FINISHED
+            return lines
+        self.dealer_index = self._next_index(self.dealer_index)
+        lines.append("开始下一轮。")
+        lines.extend(self._start_round())
         return lines
 
     def _score(self, player: FlipPlayer) -> int:
@@ -510,7 +526,7 @@ class FlipSevenGame:
         dealer = self.players[self.dealer_index].name if self.players else "无"
         lines = [
             f"阶段：{self._phase_label()}",
-            f"第 {self.round_no} 轮，庄家：{dealer}。",
+            f"第 {self.round_no}/{self.total_rounds} 轮，庄家：{dealer}。",
         ]
         if self.phase == Phase.DEALING:
             lines.append("正在初始发牌。")
@@ -548,7 +564,7 @@ class FlipSevenGame:
             }.get(player.status, player.status)
             lines.append(
                 f"- {player.name}：{status}，{player.cards_text()}，"
-                f"本轮 {player.round_score} 分，本局 {player.total_score} 分。"
+                f"本轮 {player.round_score} 分，总积分 {player.total_score} 分。"
             )
         return lines
 

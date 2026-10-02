@@ -4,5 +4,11 @@
     "type": "int",
     "default": 8,
     "hint": "至少 2 人，最多 20 人。"
+  },
+  "rounds_per_game": {
+    "description": "每局轮数。",
+    "type": "int",
+    "default": 3,
+    "hint": "默认 3 轮，按三轮总积分定胜负；每轮积分都会累计到群排行榜。"
   }
 }

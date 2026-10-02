@@ -1,7 +1,7 @@
 name: astrbot_plugin_flip_seven
 display_name: 翻转七
 desc: QQ 官方群聊翻转七卡牌游戏，支持要牌、停牌、第二次机会、行动卡、每轮积分结算与群排行榜。
-version: v1.2.0
+version: v1.3.0
 author: Codex
 repo: ""
 astrbot_version: ">=4.0.0"
