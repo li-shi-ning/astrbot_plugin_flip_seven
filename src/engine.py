@@ -5,7 +5,6 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-TARGET_SCORE = 200
 DEFAULT_MAX_PLAYERS = 8
 
 
@@ -105,9 +104,9 @@ class FlipSevenGame:
     group_id: str
     owner_id: str
     max_players: int = DEFAULT_MAX_PLAYERS
-    target_score: int = TARGET_SCORE
     players: list[FlipPlayer] = field(default_factory=list)
     phase: Phase = Phase.WAITING
+    started: bool = False
     deck: list[Card] = field(default_factory=list)
     discard: list[Card] = field(default_factory=list)
     round_no: int = 0
@@ -117,6 +116,7 @@ class FlipSevenGame:
     initial_dealt_count: int = 0
     pending: PendingAction | None = None
     winner_ids: list[str] = field(default_factory=list)
+    last_round_scores: dict[str, int] = field(default_factory=dict)
 
     # ------------------------------------------------------------------
     # Room management
@@ -137,7 +137,7 @@ class FlipSevenGame:
         )
 
     def add_player(self, user_id: str, name: str) -> None:
-        if self.phase != Phase.WAITING:
+        if self.started or self.phase != Phase.WAITING:
             raise FlipSevenError("游戏已经开始，不能加入。")
         if self.get_player(user_id) is not None:
             raise FlipSevenError("你已经加入本局。")
@@ -191,7 +191,9 @@ class FlipSevenGame:
             player.total_score = 0
         self.dealer_index = rng.randrange(len(self.players))
         self.round_no = 0
-        lines = ["翻转七开始。", f"目标分数：{self.target_score} 分。"]
+        self.started = True
+        self.last_round_scores = {}
+        lines = ["翻转七开始。每轮结算后累计积分，不设单局分数上限。"]
         lines.extend(self._start_round(rng))
         return lines
 
@@ -225,7 +227,10 @@ class FlipSevenGame:
                 self.phase = Phase.TURN
                 self.current_index = self.dealer_index
                 if self.players[self.current_index].status != STATUS_ACTIVE:
-                    self._next_turn()
+                    return lines + self._next_turn()
+                lines.append(
+                    f"初始发牌完成，轮到 {self.players[self.current_index].name} 行动。"
+                )
                 break
             index = self.initial_deal_index % len(self.players)
             player = self.players[index]
@@ -243,6 +248,7 @@ class FlipSevenGame:
         if self.phase == Phase.FINISHED:
             return []
         if source == "initial":
+            self.phase = Phase.DEALING
             self.initial_deal_index = self._next_index(actor_index)
             self.initial_dealt_count += 1
             return self._deal_initial_cards()
@@ -305,7 +311,11 @@ class FlipSevenGame:
             else:
                 self.pending = PendingAction(action, player_index, source)
                 self.phase = Phase.ACTION
-                lines.append(f"{player.name} 翻到 {card.label()}，请选择目标。")
+                effect = {
+                    "freeze": "选择一名玩家将其冰冻",
+                    "flip_three": "选择一名玩家连翻三张",
+                }.get(action, "选择目标")
+                lines.append(f"{player.name} 抽到特殊卡 {card.label()}：{effect}。")
                 return {"lines": lines, "stop": True, "pending": action}
         return {"lines": lines, "stop": False}
 
@@ -339,6 +349,8 @@ class FlipSevenGame:
         player = self.current_player()
         if player is None or player.user_id != user_id:
             raise FlipSevenError("还没有轮到你。")
+        if player.numbers == [0]:
+            raise FlipSevenError("手上只有 0 时不能停牌，必须继续要牌。")
         player.status = STATUS_STAYED
         player.round_score = self._score(player)
         lines = [f"{player.name} 停牌，本轮 {player.round_score} 分。"]
@@ -358,9 +370,13 @@ class FlipSevenGame:
             raise FlipSevenError("不能选择已经停牌或爆掉的玩家。")
         pending = self.pending
         action = pending.action
+        action_label = {
+            "freeze": "冰冻",
+            "flip_three": "翻三张",
+        }.get(action, action)
         pending_round = self.round_no
         self.pending = None
-        lines = [f"{actor.name} 对 {target.name} 使用 {action}。"]
+        lines = [f"{actor.name} 对 {target.name} 使用 {action_label}。"]
         if action == "freeze":
             target.status = STATUS_STAYED
             target.round_score = self._score(target)
@@ -430,7 +446,7 @@ class FlipSevenGame:
             if self.players[index].status == STATUS_ACTIVE:
                 self.current_index = index
                 self.phase = Phase.TURN
-                return []
+                return [f"轮到 {self.players[index].name} 行动。"]
         self.phase = Phase.TURN
         return []
 
@@ -442,24 +458,15 @@ class FlipSevenGame:
             elif player.status != STATUS_STAYED:
                 player.round_score = self._score(player)
             player.total_score += player.round_score
+        self.last_round_scores = {
+            player.user_id: player.round_score for player in self.players
+        }
         for player in self.players:
             lines.append(
-                f"{player.name}：本轮 {player.round_score} 分，总分 {player.total_score} 分。"
+                f"{player.name}：本轮 {player.round_score} 分，累计 {player.total_score} 分。"
             )
-        if any(player.total_score >= self.target_score for player in self.players):
-            best = max(player.total_score for player in self.players)
-            self.winner_ids = [
-                player.user_id for player in self.players if player.total_score == best
-            ]
-            self.phase = Phase.FINISHED
-            winners = "、".join(
-                player.name
-                for player in self.players
-                if player.user_id in self.winner_ids
-            )
-            lines.append(f"游戏结束，{winners} 以 {best} 分获胜！")
-            return lines
         self.dealer_index = self._next_index(self.dealer_index)
+        lines.append("累计积分已结算，开始下一轮。")
         lines.extend(self._start_round())
         return lines
 
@@ -483,25 +490,31 @@ class FlipSevenGame:
         return (index + 1) % len(self.players)
 
     def status_lines(self) -> list[str]:
+        dealer = self.players[self.dealer_index].name if self.players else "无"
         lines = [
             f"阶段：{self._phase_label()}",
-            f"第 {self.round_no} 轮，目标 {self.target_score} 分，"
-            f"庄家：{self.players[self.dealer_index].name if self.players else '无'}。",
+            f"第 {self.round_no} 轮，庄家：{dealer}。",
         ]
+        if self.phase == Phase.DEALING:
+            lines.append("正在初始发牌。")
+        if self.phase == Phase.TURN and self.players:
+            actor = self.current_player()
+            if actor is not None:
+                lines.append(
+                    f"当前行动：{actor.name}，可发送“翻转七要牌”或“翻转七停牌”。"
+                )
+                if actor.numbers == [0]:
+                    lines.append(f"{actor.name} 手上只有 0，必须继续要牌。")
         if self.phase == Phase.ACTION and self.pending is not None:
             actor = self.players[self.pending.actor_index]
             action = {
                 "freeze": "冰冻",
                 "flip_three": "翻三张",
             }.get(self.pending.action, self.pending.action)
-            lines.append(f"{actor.name} 的 {action} 需要选择目标：")
+            lines.append(f"{actor.name} 抽到 {action}，需要选择目标：")
             for index, player in enumerate(self.players, start=1):
                 if player.status == STATUS_ACTIVE:
                     lines.append(f"{index}. {player.name}")
-        elif self.phase == Phase.TURN and self.players:
-            lines.append(
-                f"当前行动：{self.current_player().name if self.current_player() else '无'}"
-            )
         lines.append("玩家：")
         for player in self.players:
             status = {
@@ -511,7 +524,7 @@ class FlipSevenGame:
             }.get(player.status, player.status)
             lines.append(
                 f"- {player.name}：{status}，{player.cards_text()}，"
-                f"本轮 {player.round_score} 分，总分 {player.total_score} 分。"
+                f"本轮 {player.round_score} 分，累计 {player.total_score} 分。"
             )
         return lines
 
@@ -530,7 +543,6 @@ class FlipSevenGame:
             "owner_id": self.owner_id,
             "phase": self.phase.value,
             "round_no": self.round_no,
-            "target_score": self.target_score,
             "players": [
                 {
                     "user_id": player.user_id,

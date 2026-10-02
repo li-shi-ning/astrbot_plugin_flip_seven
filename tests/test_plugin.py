@@ -45,7 +45,9 @@ class FakeEvent:
     def __init__(self, member_openid: str, name: str) -> None:
         self.bot = FakeBot()
         self.raw = FakeRawMessage("group-id", member_openid)
-        self.message_obj = SimpleNamespace(raw_message=self.raw, message_id="message-id")
+        self.message_obj = SimpleNamespace(
+            raw_message=self.raw, message_id="message-id"
+        )
         self.message_str = ""
         self._name = name
 
@@ -88,7 +90,7 @@ async def collect(asyncgen) -> list:
 def test_create_join_start_flow() -> None:
     plugin = plugin_main.FlipSevenPlugin(
         context=SimpleNamespace(),
-        config={"max_players": 4, "target_score": 200},
+        config={"max_players": 4},
     )
     owner = FakeEvent("owner", "房主")
     guest = FakeEvent("guest", "玩家二")
@@ -102,3 +104,14 @@ def test_create_join_start_flow() -> None:
     assert len(game.players) == 2
     assert game.phase != plugin_main.Phase.WAITING
     assert owner.bot.api.group_messages
+
+
+def test_menu_is_buttons_only_and_help_contains_rules() -> None:
+    plugin = plugin_main.FlipSevenPlugin(context=SimpleNamespace(), config={})
+    menu = plugin._menu_outcome()
+    help_outcome = plugin._help_outcome()
+    assert menu.text == "翻转七菜单"
+    assert "官方 94 张牌" in help_outcome.text
+    assert "只有 0" in help_outcome.text
+    labels = [button.label for button in plugin._menu_buttons()]
+    assert "翻转七帮助" in labels

@@ -18,7 +18,7 @@ from src.engine import (  # noqa: E402
 
 
 def make_game() -> FlipSevenGame:
-    game = FlipSevenGame("g", "a", max_players=4, target_score=200)
+    game = FlipSevenGame("g", "a", max_players=4)
     game.add_player("a", "A")
     game.add_player("b", "B")
     return game
@@ -80,3 +80,51 @@ def test_stay_banks_round_score() -> None:
     assert player.status == STATUS_STAYED
     assert player.round_score == 6
     assert any("停牌" in line for line in lines)
+
+
+def test_room_lock_rejects_join_after_start() -> None:
+    game = make_game()
+    game.start_game()
+    try:
+        game.add_player("c", "C")
+    except Exception as exc:
+        assert "不能加入" in str(exc)
+    else:  # pragma: no cover - guard against regression
+        raise AssertionError("join after start should be rejected")
+
+
+def test_zero_only_cannot_stay() -> None:
+    game = make_game()
+    player = game.players[0]
+    game.phase = __import__("src.engine", fromlist=["Phase"]).Phase.TURN
+    game.current_index = 0
+    player.numbers = [0]
+    try:
+        game.stay(player.user_id)
+    except Exception as exc:
+        assert "只有 0" in str(exc)
+    else:  # pragma: no cover - guard against regression
+        raise AssertionError("zero-only player should not be allowed to stay")
+
+
+def test_initial_flip_three_with_nested_flip_three_does_not_stuck() -> None:
+    game = make_game()
+    game.phase = __import__("src.engine", fromlist=["Phase"]).Phase.DEALING
+    game.round_no = 1
+    game.dealer_index = 0
+    game.current_index = 0
+    game.initial_deal_index = 0
+    game.initial_dealt_count = 0
+    game.deck = [
+        Card("number", 4),
+        Card("number", 3),
+        Card("number", 2),
+        Card("number", 1),
+        Card("action", "flip_three"),
+        Card("action", "flip_three"),
+    ]
+    game._deal_initial_cards()
+    assert game.phase.name == "ACTION"
+    game.resolve_action("a", 0)
+    assert game.pending is None
+    assert game.phase.name != "ACTION"

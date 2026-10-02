@@ -4,11 +4,5 @@
     "type": "int",
     "default": 8,
     "hint": "至少 2 人，最多 20 人。"
-  },
-  "target_score": {
-    "description": "获胜目标分。",
-    "type": "int",
-    "default": 200,
-    "hint": "默认 200 分；达到目标分后总分最高者获胜。"
   }
 }

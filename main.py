@@ -1,19 +1,20 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import random
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
-from astrbot.api.star import Context, Star, register
+from astrbot.api.star import Context, Star, StarTools, register
 
 try:
     from .src.engine import (
         DEFAULT_MAX_PLAYERS,
-        TARGET_SCORE,
         FlipSevenError,
         FlipSevenGame,
         Phase,
@@ -27,7 +28,6 @@ try:
 except ImportError:  # pragma: no cover - direct local import fallback
     from src.engine import (
         DEFAULT_MAX_PLAYERS,
-        TARGET_SCORE,
         FlipSevenError,
         FlipSevenGame,
         Phase,
@@ -56,8 +56,8 @@ class CommandOutcome:
 @register(
     PLUGIN_NAME,
     "Codex",
-    "QQ 官方群聊翻转七：多人卡牌游戏，支持要牌、停牌、行动卡目标和 200 分结算。",
-    "1.0.0",
+    "QQ 官方群聊翻转七：多人卡牌游戏，支持要牌、停牌、行动卡目标、每轮积分结算和群排行榜。",
+    "1.1.0",
 )
 class FlipSevenPlugin(Star):
     def __init__(self, context: Context, config: Any = None) -> None:
@@ -66,7 +66,9 @@ class FlipSevenPlugin(Star):
         self.max_players = self._config_int(
             "max_players", DEFAULT_MAX_PLAYERS, minimum=2, maximum=20
         )
-        self.target_score = self._config_int("target_score", TARGET_SCORE, minimum=50)
+        self.leaderboard_path = (
+            Path(StarTools.get_data_dir(PLUGIN_NAME)) / "leaderboard.json"
+        )
         self.games: dict[str, FlipSevenGame] = {}
         self.group_locks: dict[str, asyncio.Lock] = {}
 
@@ -80,9 +82,15 @@ class FlipSevenPlugin(Star):
     # ------------------------------------------------------------------
     # Commands
     # ------------------------------------------------------------------
-    @filter.command("翻转七菜单", alias={"翻转七帮助", "翻转七"})
+    @filter.command("翻转七菜单", alias={"翻转七"})
     async def menu_command(self, event: AstrMessageEvent):
         async for result in self._handle_command(event, "menu"):
+            yield result
+        event.stop_event()
+
+    @filter.command("翻转七帮助")
+    async def help_command(self, event: AstrMessageEvent):
+        async for result in self._handle_command(event, "help"):
             yield result
         event.stop_event()
 
@@ -134,6 +142,12 @@ class FlipSevenPlugin(Star):
             yield result
         event.stop_event()
 
+    @filter.command("翻转七排行榜", alias={"翻转七积分榜", "翻转七积分"})
+    async def leaderboard_command(self, event: AstrMessageEvent):
+        async for result in self._handle_command(event, "leaderboard"):
+            yield result
+        event.stop_event()
+
     @filter.command("翻转七结束", alias={"翻转七取消"})
     async def end_command(self, event: AstrMessageEvent):
         async for result in self._handle_command(event, "end"):
@@ -163,6 +177,8 @@ class FlipSevenPlugin(Star):
         if outcome.error:
             yield event.plain_result(outcome.text)
             return
+        if outcome.game is not None:
+            self._sync_leaderboard(outcome.game)
         buttons = outcome.buttons
         if buttons is None and outcome.game is not None:
             buttons = self._game_buttons(outcome.game)
@@ -181,6 +197,8 @@ class FlipSevenPlugin(Star):
     ) -> CommandOutcome:
         if command == "menu":
             return self._menu_outcome()
+        if command == "help":
+            return self._help_outcome()
         if command == "create":
             return self._create_game(group_id, user_id, name)
         if command == "join":
@@ -197,6 +215,8 @@ class FlipSevenPlugin(Star):
             return self._stay(group_id, user_id)
         if command == "select":
             return self._select_target(group_id, user_id, self._message_text(event))
+        if command == "leaderboard":
+            return self._leaderboard_outcome(group_id)
         if command == "end":
             return self._end_game(event, group_id, user_id)
         raise FlipSevenError("未知指令。")
@@ -212,15 +232,12 @@ class FlipSevenPlugin(Star):
             group_id=group_id,
             owner_id=user_id,
             max_players=self.max_players,
-            target_score=self.target_score,
         )
         game.add_player(user_id, name)
         self.games[group_id] = game
         return CommandOutcome(
             text=(
-                "翻转七房间已创建。\n"
-                f"人数：{len(game.players)}/{game.max_players}。\n"
-                f"目标分数：{game.target_score} 分。"
+                f"翻转七房间已创建。\n人数：{len(game.players)}/{game.max_players}。"
             ),
             game=game,
         )
@@ -286,6 +303,55 @@ class FlipSevenPlugin(Star):
         lines = game.resolve_action(user_id, target_index)
         return CommandOutcome(text="\n".join(lines), game=game)
 
+    # ------------------------------------------------------------------
+    # Persistent leaderboard
+    # ------------------------------------------------------------------
+    def _load_leaderboard(self) -> dict[str, dict[str, dict[str, Any]]]:
+        if not self.leaderboard_path.exists():
+            return {}
+        try:
+            data = json.loads(self.leaderboard_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def _save_leaderboard(self, data: dict[str, dict[str, dict[str, Any]]]) -> None:
+        self.leaderboard_path.parent.mkdir(parents=True, exist_ok=True)
+        self.leaderboard_path.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+
+    def _sync_leaderboard(self, game: FlipSevenGame) -> None:
+        if not game.last_round_scores:
+            return
+        data = self._load_leaderboard()
+        group = data.setdefault(game.group_id, {})
+        for player in game.players:
+            delta = int(game.last_round_scores.get(player.user_id, 0))
+            entry = group.setdefault(player.user_id, {"name": player.name, "score": 0})
+            entry["name"] = player.name
+            entry["score"] = int(entry.get("score", 0)) + delta
+        self._save_leaderboard(data)
+        game.last_round_scores.clear()
+
+    def _leaderboard_outcome(self, group_id: str) -> CommandOutcome:
+        data = self._load_leaderboard().get(group_id, {})
+        if not data:
+            return CommandOutcome(
+                text="本群暂无翻转七积分记录。", buttons=self._menu_buttons()
+            )
+        rows = sorted(
+            data.items(),
+            key=lambda item: int(item[1].get("score", 0)),
+            reverse=True,
+        )[:20]
+        lines = ["翻转七积分排行榜："]
+        for index, (user_id, entry) in enumerate(rows, start=1):
+            name = str(entry.get("name") or user_id)
+            score = int(entry.get("score", 0))
+            lines.append(f"{index}. {name}：{score} 分")
+        return CommandOutcome(text="\n".join(lines), buttons=self._menu_buttons())
+
     def _end_game(
         self, event: AstrMessageEvent, group_id: str, user_id: str
     ) -> CommandOutcome:
@@ -301,18 +367,25 @@ class FlipSevenPlugin(Star):
     # Buttons and rendering
     # ------------------------------------------------------------------
     def _menu_outcome(self) -> CommandOutcome:
+        return CommandOutcome(text="翻转七菜单", buttons=self._menu_buttons())
+
+    def _help_outcome(self) -> CommandOutcome:
         text = (
             "翻转七帮助\n\n"
-            "1. 目标：先达到目标分数，默认 200 分。\n"
-            "2. 每轮开始庄家给每名玩家翻一张牌。\n"
-            "3. 轮到你时可以发送“要牌”或“停牌”。\n"
-            "4. 翻到重复数字会爆掉；有第二次机会可以抵消一次。\n"
-            "5. 数字牌不重复时继续累计；7 张不同数字触发翻转七，+15 分。\n"
-            "6. 修正牌 +2/+4/+6/+8/+10 加在数字和上，x2 先翻倍再加其他修正。\n"
-            "7. 冰冻让目标直接停牌结算；翻三张让目标连翻三张。\n"
-            "8. 行动卡需要发送“翻转七选择 编号”选择目标。\n\n"
-            "命令：翻转七创建 / 翻转七加入 / 翻转七开始 / 翻转七看 / "
-            "翻转七要牌 / 翻转七停牌 / 翻转七选择 / 翻转七结束"
+            "1. 使用官方 94 张牌：数字牌 79 张、行动牌 9 张、修正牌 6 张。\n"
+            "2. 每轮庄家给每名玩家翻一张初始牌，然后从庄家开始轮流行动。\n"
+            "3. 轮到你时发送“翻转七要牌”或“翻转七停牌”。\n"
+            "4. 手上只有 0 时不能停牌，必须继续要牌。\n"
+            "5. 翻到重复数字会爆掉，本轮 0 分；有第二次机会可抵消一次。\n"
+            "6. 集齐 7 张不同数字立即触发翻转七，本轮额外 +15 分。\n"
+            "7. 修正牌：+2/+4/+6/+8/+10 加在数字总和上；x2 先翻倍再加其他修正。\n"
+            "8. 冰冻让目标立即停牌结算；翻三张让目标连续翻三张。\n"
+            "9. 抽到行动卡后发送“翻转七选择 编号”选择目标。\n"
+            "10. 每轮结束都会结算本轮积分并累计，不设获胜分数。\n"
+            "11. 发送“翻转七排行榜”查看群内累计积分排行。\n\n"
+            "命令：翻转七菜单 / 翻转七创建 / 翻转七加入 / 翻转七开始 / "
+            "翻转七看 / 翻转七要牌 / 翻转七停牌 / 翻转七选择 / "
+            "翻转七排行榜 / 翻转七结束"
         )
         return CommandOutcome(text=text, buttons=self._menu_buttons())
 
