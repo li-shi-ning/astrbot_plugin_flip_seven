@@ -112,6 +112,20 @@ def test_menu_is_buttons_only_and_help_contains_rules() -> None:
     help_outcome = plugin._help_outcome()
     assert menu.text == "翻转七菜单"
     assert "官方 94 张牌" in help_outcome.text
-    assert "只有 0" in help_outcome.text
+    assert "抽到 0" in help_outcome.text
     labels = [button.label for button in plugin._menu_buttons()]
     assert "翻转七帮助" in labels
+
+
+def test_zero_player_has_no_stay_button() -> None:
+    plugin = plugin_main.FlipSevenPlugin(context=SimpleNamespace(), config={})
+    game = plugin_main.FlipSevenGame("group-id", "owner", max_players=4)
+    game.add_player("owner", "房主")
+    game.add_player("guest", "玩家二")
+    game.started = True
+    game.phase = plugin_main.Phase.TURN
+    game.current_index = 0
+    game.players[0].numbers = [0, 5]
+    labels = [button.label for button in plugin._game_buttons(game)]
+    assert "要牌" in labels
+    assert "停牌" not in labels

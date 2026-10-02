@@ -93,18 +93,18 @@ def test_room_lock_rejects_join_after_start() -> None:
         raise AssertionError("join after start should be rejected")
 
 
-def test_zero_only_cannot_stay() -> None:
+def test_zero_blocks_stay_even_with_other_numbers() -> None:
     game = make_game()
     player = game.players[0]
     game.phase = __import__("src.engine", fromlist=["Phase"]).Phase.TURN
     game.current_index = 0
-    player.numbers = [0]
+    player.numbers = [0, 5, 8]
     try:
         game.stay(player.user_id)
     except Exception as exc:
-        assert "只有 0" in str(exc)
+        assert "抽到 0" in str(exc)
     else:  # pragma: no cover - guard against regression
-        raise AssertionError("zero-only player should not be allowed to stay")
+        raise AssertionError("player with a 0 should not be allowed to stay")
 
 
 def test_initial_flip_three_with_nested_flip_three_does_not_stuck() -> None:

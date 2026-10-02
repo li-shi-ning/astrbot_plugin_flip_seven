@@ -57,7 +57,7 @@ class CommandOutcome:
     PLUGIN_NAME,
     "Codex",
     "QQ 官方群聊翻转七：多人卡牌游戏，支持要牌、停牌、行动卡目标、每轮积分结算和群排行榜。",
-    "1.1.1",
+    "1.1.2",
 )
 class FlipSevenPlugin(Star):
     def __init__(self, context: Context, config: Any = None) -> None:
@@ -375,7 +375,7 @@ class FlipSevenPlugin(Star):
             "1. 使用官方 94 张牌：数字牌 79 张、行动牌 9 张、修正牌 6 张。\n"
             "2. 每轮庄家给每名玩家翻一张初始牌，然后从庄家开始轮流行动。\n"
             "3. 轮到你时发送“翻转七要牌”或“翻转七停牌”。\n"
-            "4. 手上只有 0 时不能停牌，必须继续要牌。\n"
+            "4. 抽到 0 的玩家本轮不能停牌，必须继续要牌。\n"
             "5. 翻到重复数字会爆掉，本轮 0 分；有第二次机会可抵消一次。\n"
             "6. 集齐 7 张不同数字立即触发翻转七，本轮额外 +15 分。\n"
             "7. 修正牌：+2/+4/+6/+8/+10 加在数字总和上；x2 先翻倍再加其他修正。\n"
@@ -440,16 +440,17 @@ class FlipSevenPlugin(Star):
         if game.phase == Phase.TURN:
             actor = game.current_player()
             if actor is not None:
-                buttons.extend(
-                    [
-                        ButtonSpec(
-                            "f7_act_hit", "要牌", "翻转七要牌", only_for=actor.user_id
-                        ),
+                buttons.append(
+                    ButtonSpec(
+                        "f7_act_hit", "要牌", "翻转七要牌", only_for=actor.user_id
+                    )
+                )
+                if 0 not in actor.numbers:
+                    buttons.append(
                         ButtonSpec(
                             "f7_act_stay", "停牌", "翻转七停牌", only_for=actor.user_id
-                        ),
-                    ]
-                )
+                        )
+                    )
         buttons.extend(
             [
                 ButtonSpec("f7_play_status", "状态", "翻转七看"),

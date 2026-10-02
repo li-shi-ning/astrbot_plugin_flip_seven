@@ -351,8 +351,8 @@ class FlipSevenGame:
         player = self.current_player()
         if player is None or player.user_id != user_id:
             raise FlipSevenError("还没有轮到你。")
-        if player.numbers == [0]:
-            raise FlipSevenError("手上只有 0 时不能停牌，必须继续要牌。")
+        if 0 in player.numbers:
+            raise FlipSevenError("抽到 0 的玩家本轮不能停牌，必须继续要牌。")
         player.status = STATUS_STAYED
         player.round_score = self._score(player)
         lines = [f"{player.name} 停牌，本轮 {player.round_score} 分。"]
@@ -516,8 +516,8 @@ class FlipSevenGame:
                 lines.append(
                     f"当前行动：{actor.name}，可发送“翻转七要牌”或“翻转七停牌”。"
                 )
-                if actor.numbers == [0]:
-                    lines.append(f"{actor.name} 手上只有 0，必须继续要牌。")
+                if 0 in actor.numbers:
+                    lines.append(f"{actor.name} 抽到过 0，本轮不能停牌，必须继续要牌。")
         if self.phase == Phase.ACTION and self.pending is not None:
             actor = self.players[self.pending.actor_index]
             action = {
