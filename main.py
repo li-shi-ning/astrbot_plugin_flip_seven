@@ -57,7 +57,7 @@ class CommandOutcome:
     PLUGIN_NAME,
     "Codex",
     "QQ 官方群聊翻转七：多人卡牌游戏，支持要牌、停牌、行动卡目标、每轮积分结算和群排行榜。",
-    "1.1.0",
+    "1.1.1",
 )
 class FlipSevenPlugin(Star):
     def __init__(self, context: Context, config: Any = None) -> None:

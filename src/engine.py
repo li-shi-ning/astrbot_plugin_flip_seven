@@ -337,10 +337,12 @@ class FlipSevenGame:
         result = self._give_card(index, card, source="turn")
         lines.extend(result["lines"])
         if result.get("stop"):
+            lines.extend(self.ensure_progress())
             return lines
         if result.get("bust"):
             pass
         lines.extend(self._next_turn())
+        lines.extend(self.ensure_progress())
         return lines
 
     def stay(self, user_id: str) -> list[str]:
@@ -355,6 +357,7 @@ class FlipSevenGame:
         player.round_score = self._score(player)
         lines = [f"{player.name} 停牌，本轮 {player.round_score} 分。"]
         lines.extend(self._next_turn())
+        lines.extend(self.ensure_progress())
         return lines
 
     def resolve_action(self, user_id: str, target_index: int) -> list[str]:
@@ -434,6 +437,16 @@ class FlipSevenGame:
             if result.get("stop") or result.get("bust"):
                 break
         return lines
+
+    def ensure_progress(self) -> list[str]:
+        """Recover from any phase anomaly before the game waits forever."""
+
+        if self.phase == Phase.ACTION and self.pending is None:
+            self.phase = Phase.TURN
+            return self._next_turn()
+        if self.phase == Phase.TURN and self.current_player() is None:
+            return self._next_turn()
+        return []
 
     def _next_turn(self) -> list[str]:
         if self.phase == Phase.FINISHED:

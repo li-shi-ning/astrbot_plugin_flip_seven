@@ -128,3 +128,42 @@ def test_initial_flip_three_with_nested_flip_three_does_not_stuck() -> None:
     game.resolve_action("a", 0)
     assert game.pending is None
     assert game.phase.name != "ACTION"
+
+
+def test_flip_three_other_target_cards_do_not_stuck() -> None:
+    scenarios = [
+        ["freeze", "number", "number"],
+        ["flip_three", "freeze", "number"],
+        ["flip_three", "flip_three", "freeze"],
+        ["second_chance", "freeze", "number"],
+    ]
+    for source in ("initial", "turn"):
+        for scenario in scenarios:
+            game = make_game()
+            game.started = True
+            game.phase = __import__("src.engine", fromlist=["Phase"]).Phase.ACTION
+            game.round_no = 1
+            game.dealer_index = 0
+            game.current_index = 0
+            game.initial_deal_index = 0
+            game.initial_dealt_count = 0
+            game.pending = __import__(
+                "src.engine", fromlist=["PendingAction"]
+            ).PendingAction("flip_three", 0, source)
+            cards = []
+            for index, value in enumerate(scenario):
+                if value == "number":
+                    cards.append(Card("number", index + 1))
+                else:
+                    cards.append(Card("action", value))
+            game.deck = list(reversed(cards)) + [
+                Card("number", 8),
+                Card("number", 9),
+                Card("number", 10),
+                Card("number", 11),
+            ]
+            game.discard = []
+
+            game.resolve_action("a", 0)
+            game.ensure_progress()
+            assert not (game.phase.name == "ACTION" and game.pending is None)
