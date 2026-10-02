@@ -167,3 +167,20 @@ def test_flip_three_other_target_cards_do_not_stuck() -> None:
             game.resolve_action("a", 0)
             game.ensure_progress()
             assert not (game.phase.name == "ACTION" and game.pending is None)
+
+
+def test_one_round_finishes_game_and_records_scores() -> None:
+    game = make_game()
+    game.started = True
+    game.phase = __import__("src.engine", fromlist=["Phase"]).Phase.TURN
+    game.players[0].numbers = [1, 2]
+    game.players[0].status = STATUS_STAYED
+    game.players[0].round_score = 3
+    game.players[1].numbers = [5]
+    game.players[1].status = STATUS_BUSTED
+    lines = game._finish_round()
+    assert game.phase.name == "FINISHED"
+    assert game.winner_ids == [game.players[0].user_id]
+    assert game.last_round_scores[game.players[0].user_id] == 3
+    assert game.last_round_scores[game.players[1].user_id] == 0
+    assert any("获胜" in line for line in lines)

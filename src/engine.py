@@ -193,7 +193,7 @@ class FlipSevenGame:
         self.round_no = 0
         self.started = True
         self.last_round_scores = {}
-        lines = ["翻转七开始。每轮结算后累计积分，不设单局分数上限。"]
+        lines = ["翻转七开始。本局一局定胜负，积分会累计到群排行榜。"]
         lines.extend(self._start_round(rng))
         return lines
 
@@ -464,7 +464,7 @@ class FlipSevenGame:
         return []
 
     def _finish_round(self) -> list[str]:
-        lines: list[str] = ["本轮结束。"]
+        lines: list[str] = ["本轮结束，本局一局定胜负。"]
         for player in self.players:
             if player.status == STATUS_BUSTED:
                 player.round_score = 0
@@ -474,13 +474,17 @@ class FlipSevenGame:
         self.last_round_scores = {
             player.user_id: player.round_score for player in self.players
         }
+        best = max((player.round_score for player in self.players), default=0)
+        self.winner_ids = [
+            player.user_id for player in self.players if player.round_score == best
+        ]
+        winners = "、".join(
+            player.name for player in self.players if player.user_id in self.winner_ids
+        )
+        lines.append(f"最高分：{best} 分，{winners} 获胜！")
         for player in self.players:
-            lines.append(
-                f"{player.name}：本轮 {player.round_score} 分，累计 {player.total_score} 分。"
-            )
-        self.dealer_index = self._next_index(self.dealer_index)
-        lines.append("累计积分已结算，开始下一轮。")
-        lines.extend(self._start_round())
+            lines.append(f"{player.name}：本轮 {player.round_score} 分。")
+        self.phase = Phase.FINISHED
         return lines
 
     def _score(self, player: FlipPlayer) -> int:
@@ -510,6 +514,13 @@ class FlipSevenGame:
         ]
         if self.phase == Phase.DEALING:
             lines.append("正在初始发牌。")
+        if self.phase == Phase.FINISHED and self.winner_ids:
+            winners = "、".join(
+                player.name
+                for player in self.players
+                if player.user_id in self.winner_ids
+            )
+            lines.append(f"本局获胜者：{winners}。")
         if self.phase == Phase.TURN and self.players:
             actor = self.current_player()
             if actor is not None:
@@ -537,7 +548,7 @@ class FlipSevenGame:
             }.get(player.status, player.status)
             lines.append(
                 f"- {player.name}：{status}，{player.cards_text()}，"
-                f"本轮 {player.round_score} 分，累计 {player.total_score} 分。"
+                f"本轮 {player.round_score} 分，本局 {player.total_score} 分。"
             )
         return lines
 
