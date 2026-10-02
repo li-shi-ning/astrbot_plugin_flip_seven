@@ -116,13 +116,13 @@ class FlipSevenPlugin(Star):
             yield result
         event.stop_event()
 
-    @filter.command("翻转七要牌", alias={"翻七要牌", "flip7hit"})
+    @filter.command("翻转七要牌")
     async def hit_command(self, event: AstrMessageEvent):
         async for result in self._handle_command(event, "hit"):
             yield result
         event.stop_event()
 
-    @filter.command("翻转七停牌", alias={"翻七停牌", "flip7stay"})
+    @filter.command("翻转七停牌")
     async def stay_command(self, event: AstrMessageEvent):
         async for result in self._handle_command(event, "stay"):
             yield result
@@ -370,10 +370,10 @@ class FlipSevenPlugin(Star):
                 buttons.extend(
                     [
                         ButtonSpec(
-                            "f7_act_hit", "要牌", "要牌", only_for=actor.user_id
+                            "f7_act_hit", "要牌", "翻转七要牌", only_for=actor.user_id
                         ),
                         ButtonSpec(
-                            "f7_act_stay", "停牌", "停牌", only_for=actor.user_id
+                            "f7_act_stay", "停牌", "翻转七停牌", only_for=actor.user_id
                         ),
                     ]
                 )
